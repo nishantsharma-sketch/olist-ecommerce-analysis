@@ -24,7 +24,7 @@ The project spans the complete data pipeline: raw CSV ingestion → PostgreSQL �
 ## Dataset
 
 **Source:** Kaggle — Olist Brazilian E-Commerce Public Dataset
-**Tables:** 9 tables, 100,000+ orders
+**Tables:** 9 tables, ~100,000 orders
 **Date Range:** September 2016 – October 2018
 **Note:** September 2016 and October 2018 are partial months and not used for trend interpretation.
 
