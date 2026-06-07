@@ -3,7 +3,7 @@ End-to-end data analytics project using Olist Brazilian E-Commerce dataset
 
 ## Overview
 
-A full-stack data analytics portfolio project built on the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — a real-world dataset covering 100,000+ orders placed on the Olist marketplace between 2016 and 2018.
+A full-stack data analytics portfolio project built on the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — a real-world dataset covering ~100,000 orders placed on the Olist marketplace between 2016 and 2018.
 
 The project spans the complete data pipeline: raw CSV ingestion → PostgreSQL → Python/SQLAlchemy validation and analysis → SQL analytical views → Power BI dashboard with 7 report pages.
 
