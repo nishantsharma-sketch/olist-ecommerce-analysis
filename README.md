@@ -107,13 +107,13 @@ For all delivered orders with non-null dates, validated:
 
 | Relationship | Result |
 |---|---|
-| orders → customers | ✅ 0 orphans |
-| order_items → orders | ✅ 0 orphans |
-| payments → orders | ✅ 0 orphans |
-| order_items → products | ✅ 0 orphans |
-| order_items → sellers | ✅ 0 orphans |
-| reviews → orders | ✅ 0 orphans |
-| products → translation | ⚠️ 623 orphaned products (610 null category + 13 from 2 missing categories) |
+| orders → customers | 0 orphans |
+| order_items → orders | 0 orphans |
+| payments → orders | 0 orphans |
+| order_items → products | 0 orphans |
+| order_items → sellers | 0 orphans |
+| reviews → orders | 0 orphans |
+| products → translation | 623 orphaned products (610 null category + 13 from 2 missing categories) |
 
 ### Cardinality
 
@@ -195,11 +195,11 @@ As analysis grew more complex, DAX began producing incorrect results for:
 
 | Requirement | DAX | SQL View |
 |---|---|---|
-| ROW_NUMBER deduplication | No native equivalent | ✅ Window function |
-| Multi-step CTEs | Not supported | ✅ Fully supported |
-| Filtered aggregates | Verbose, error-prone | ✅ COUNT(*) FILTER (WHERE ...) |
-| Fan-out prevention | Requires careful CALCULATE | ✅ Pre-aggregate in CTE |
-| Share % via window function | Complex nested measures | ✅ SUM(COUNT(*)) OVER () |
+| ROW_NUMBER deduplication | No native equivalent | Window function |
+| Multi-step CTEs | Not supported | Fully supported |
+| Filtered aggregates | Verbose, error-prone | COUNT(*) FILTER (WHERE ...) |
+| Fan-out prevention | Requires careful CALCULATE | Pre-aggregate in CTE |
+| Share % via window function | Complex nested measures | SUM(COUNT(*)) OVER () |
 
 ---
 
@@ -207,9 +207,6 @@ As analysis grew more complex, DAX began producing incorrect results for:
 
 | View | Description |
 |---|---|
-| `vw_positive_review_rate` | Deduped positive review rate (score ≥ 4) |
-| `vw_negative_review_rate` | Deduped negative review rate (score ≤ 2) |
-| `vw_avg_order_value` | AOV on clean orders — payments pre-aggregated to order level |
 | `vw_review_score_distribution` | Overall score distribution for delivered orders |
 | `vw_review_score_by_delivery_bucket` | Score breakdown by delivery timeliness (Very Early to Very Late) |
 | `vw_survey_response_time_vs_review` | Score breakdown by time between delivery and review submission |
