@@ -1,11 +1,10 @@
 # olist-ecommerce-analysis
-End-to-end data analytics project using Olist Brazilian E-Commerce dataset
+End-to-end data analytics project using the Olist Brazilian E-Commerce dataset
 
 ## Overview
-
 A full-stack data analytics portfolio project built on the [Olist Brazilian E-Commerce dataset](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) — a real-world dataset covering ~100,000 orders placed on the Olist marketplace between 2016 and 2018.
 
-The project spans the complete data pipeline: raw CSV ingestion → PostgreSQL → Python/SQLAlchemy validation and analysis → SQL analytical views → Power BI dashboard with 7 report pages.
+The project spans the complete pipeline: raw CSV ingestion → PostgreSQL → Python/SQLAlchemy profiling and validation → an 8-table SQL star schema (4 dimensions + 4 facts) → a 5-page Power BI report, built entirely on basic aggregations with no DAX.
 
 ---
 
@@ -15,21 +14,20 @@ The project spans the complete data pipeline: raw CSV ingestion → PostgreSQL �
 |---|---|
 | Database | PostgreSQL |
 | Data Loading & Validation | Python (pandas, SQLAlchemy, psycopg2) |
-| Analytical Logic | SQL (CTEs, window functions, filtered aggregates) |
-| Business Intelligence | Power BI Desktop (Mixed mode — Import + DirectQuery) |
+| Analytical Logic | SQL (subqueries, window functions, filtered aggregates) |
+| Data Modeling | Star schema — 4 dimension tables + 4 fact tables, built as SQL views |
+| Business Intelligence | Power BI Desktop (Import mode) |
 | Version Control | GitHub |
 
 ---
 
 ## Dataset
-
 **Source:** Kaggle — Olist Brazilian E-Commerce Public Dataset
 **Tables:** 9 tables, ~100,000 orders
 **Date Range:** September 2016 – October 2018
-**Note:** September 2016 and October 2018 are partial months and not used for trend interpretation.
+**Note:** September 2016 and October 2018 are partial months and are treated with caution in trend interpretation.
 
 ### Tables
-
 | Table | Description |
 |---|---|
 | olist_customers_dataset | Customer IDs and location |
@@ -39,72 +37,58 @@ The project spans the complete data pipeline: raw CSV ingestion → PostgreSQL �
 | olist_order_reviews_dataset | Customer review scores and timestamps |
 | olist_products_dataset | Product metadata and dimensions |
 | olist_sellers_dataset | Seller location data |
-| olist_geolocation_dataset | Zip code coordinates |
+| olist_geolocation_dataset | Zip code coordinates (profiled, excluded from modeling — see below) |
 | product_category_name_translation | Portuguese to English category name mapping |
 
 ---
 
 ## Phase 1 — Data Loading
-
 All 9 CSVs were loaded into PostgreSQL using Python and SQLAlchemy:
-
 ```python
 df.to_sql(table_name, engine, if_exists='replace', index=False)
 ```
-
 Column names, data types, row counts, null counts, and unique value counts were profiled for all 9 tables before any analysis.
 
 ---
 
 ## Phase 2 — Data Quality & Validation
-
-Extensive per-table data quality checks were performed before any analysis. Issues were documented and handled explicitly.
+Per-table data quality checks were performed before any analysis. Issues were documented and handled explicitly rather than silently dropped.
 
 ### Key Data Quality Issues Found
-
 | Issue | Detail |
 |---|---|
-| Delivered orders with null dates | 14 null approved_at, 2 null carrier date, 8 null customer delivery date |
-| Date logic violations | 1,373 delivered orders where dates are out of sequence |
-| Review ID not unique | 789 review_ids mapped to multiple order_ids; 547 order_ids with multiple review_ids |
-| Payment value = 0 or negative | Multiple rows — filtered in analysis |
-| Payment installments < 1 | Anomalous rows found and excluded |
-| Payment sequential gaps | 80 orders with non-contiguous payment_sequential numbering |
-| 1 product with all fields null | Only product_id present — complete data gap |
-| 610 products missing metadata | No category name, name length, description, or photo count |
-| 4 products with weight = 0 | Physical dimension integrity violation |
-| 1 delivered order with no payment | Confirmed via order ID — excluded from payment analysis |
-| 775 orders with no items | 603 unavailable, 164 canceled, 5 created, 2 invoiced, 1 shipped |
-| Translation mismatch | 73 unique categories in products vs 71 in translation table — 623 products affected |
-| Column name spelling errors | product_name_lenght, product_description_lenght — corrected in dataframes |
-
-### Date Logic Validation
-
-For all delivered orders with non-null dates, validated:
-`purchase < approved < carrier_delivery < customer_delivery`
-
-→ 1,373 violations found. Excluded from date-sensitive analysis (late delivery rate) from both numerator and denominator.
+| Delivered orders with null dates | 14 null `approved_at`, 2 null carrier date, 8 null customer delivery date |
+| Review ID not a unique key | 789 `review_id`s mapped to multiple `order_id`s; 547 `order_id`s with multiple `review_id`s; 649 rows affected by both |
+| Payment value = 0 | 9 rows — 3 explained as `not_defined` payment type, 6 unexplained; flagged, not deleted |
+| Payment installments = 0 | Found on real, non-zero-value payments — data quality issue, not excluded |
+| Payment sequential gaps | 80 orders with non-contiguous `payment_sequential` numbering — confirmed negligible revenue impact (0.06–0.08%), retained |
+| 1 product with all fields null | Only `product_id` present — complete data gap |
+| 610 products missing metadata | No category name, name length, description length, or photo count |
+| 4 products with weight = 0 | All in `cama_mesa_banho`, near-identical dimensions — possible duplicate listings, not confirmed |
+| 1 delivered order with no payment | Confirmed via order ID — excluded from payment-level analysis |
+| 775 orders with no items | 603 unavailable, 164 canceled, 5 created, 2 invoiced, 1 shipped — delivered orders unaffected |
+| Category translation mismatch | 73 unique categories in products vs 71 in translation table — 623 products affected (610 null category + 13 from 2 missing translations) |
+| Column name spelling errors | `product_name_lenght`, `product_description_lenght` — corrected in the schema |
+| Geolocation has no clean key | Zip alone, zip+state, zip+state+city, and lat/lng dedup all fall short of the table's row count; confirmed many-to-many against both customers and sellers — excluded from the model entirely |
 
 ---
 
 ## Phase 3 — Relational Integrity
 
 ### Schema and Keys
-
 | Table | Primary Key | Foreign Key |
 |---|---|---|
 | customers | customer_id | — |
 | orders | order_id | customer_id → customers |
 | order_items | order_id + order_item_id (composite) | order_id → orders, product_id → products, seller_id → sellers |
-| payments | none | order_id → orders |
+| payments | order_id + payment_sequential (composite) | order_id → orders |
 | reviews | none (review_id NOT unique — data quality issue) | order_id → orders |
 | products | product_id | product_category_name → translation |
 | sellers | seller_id | — |
-| geolocation | none | — |
+| geolocation | none (no clean key at any grain tested) | — |
 | translation | product_category_name | — |
 
 ### Orphan Checks
-
 | Relationship | Result |
 |---|---|
 | orders → customers | 0 orphans |
@@ -113,127 +97,56 @@ For all delivered orders with non-null dates, validated:
 | order_items → products | 0 orphans |
 | order_items → sellers | 0 orphans |
 | reviews → orders | 0 orphans |
-| products → translation | 623 orphaned products (610 null category + 13 from 2 missing categories) |
+| products → translation | 623 orphaned products |
 
 ### Cardinality
-
 | Relationship | Cardinality |
 |---|---|
-| customers → orders | One-to-One at customer_id level; One-to-Many at customer_unique_id level |
+| customers → orders | One-to-One at `customer_id` level (a known Olist quirk — `customer_id` is unique per order); One-to-Many at `customer_unique_id` level |
 | orders → order_items | One-to-Many (max 21 items per order) |
-| orders → payments | One-to-Many (max 29 payments per order) |
-| orders → reviews | Expected One-to-One; Actual One-to-Many (data quality issue) |
+| orders → payments | One-to-Many (max 29 payment rows per order) |
+| orders → reviews | Expected One-to-One; actual One-to-Many (data quality issue, resolved via dedup — see below) |
 | order_items → products | Many-to-One |
 | order_items → sellers | Many-to-One |
 | products → translation | Many-to-One |
 
-### Fan-Out and Data Loss Checks
-
-Systematic JOIN validation performed for all 8 relationships using LEFT JOIN and row count comparison:
-
-- **Customers → Orders:** Clean join
-- **Orders → Order Items:** Fan-out expected (one-to-many); 775 unmatched orders (all non-delivered statuses — delivered orders unaffected)
-- **Orders → Payments:** Fan-out expected; 1 unmatched delivered order (no payment recorded)
-- **Orders → Reviews:** Fan-out expected (547 orders with multiple reviews); 768 orders with no review (normal — not every customer reviews)
-- **Order Items → Sellers:** Clean join
-- **Order Items → Products:** Clean join
-- **Products → Translation:** 623 unmatched products (known — null categories and 2 missing translations)
-
 ---
 
-## Phase 4 — Analysis and KPIs
+## Phase 4 — Data Model: 8-Table Star Schema
 
-### Key KPIs
+Rather than one wide denormalized table, the project uses a proper Kimball-style star schema — 4 dimension tables carrying descriptive attributes, and 4 fact tables carrying only foreign keys and measures. All 8 objects are SQL views built with subqueries (no CTEs) and window functions where needed.
 
-| KPI | Value |
-|---|---|
-| Total Gross Revenue | 16.01M BRL |
-| Total Clean Revenue | 15.74M BRL |
-| Revenue Gap (canceled/unavailable) | 269.74K BRL |
-| Total Orders | 99,441 |
-| Delivery Rate | 97.02% |
-| Late Delivery Rate | 8.11% |
-| Positive Review Rate (≥4 stars) | 77.07% |
-| Negative Review Rate (≤2 stars) | 14.69% |
-| 5-Star Review Share | 59.22% |
-| 1-Star Review Share | 9.76% |
-| Repeat Customer Rate | 3.01% |
-| Cancellation Rate | 0.63% |
-| Unavailability Rate | 0.61% |
-| Total Active Sellers | 3,095 (100% active) |
-| AOV — Clean Orders | 160.26 BRL |
-| Max Orders by Single Customer | 17 |
-| Peak Revenue Month | 2017-09 |
+### Dimensions
+| View | Grain | Description |
+|---|---|---|
+| `dim_date` | 1 row per calendar day | Generated date spine (2016-09-01 to 2018-11-01) with year/quarter/month/day-of-week/weekend flags |
+| `dim_customers` | 1 row per customer_id | City, state, zip, and the real repeat-shopper key `customer_unique_id` |
+| `dim_sellers` | 1 row per seller_id | City, state, zip |
+| `dim_products` | 1 row per product_id | English category name (via translation join, nulls coalesced to "uncategorized"), weight/dimensions, photo count |
 
-### KPI Methodology Notes
+### Facts
+| View | Grain | Description |
+|---|---|---|
+| `fact_orders` | 1 row per order | Order lifecycle dates, status flags (`is_delivered`, `is_canceled`, `is_excluded_from_clean`), computed `is_late`, `delivery_days`, `approval_days` |
+| `fact_order_items` | 1 row per order line item | Primary revenue fact — product_id, seller_id, price, freight_value, plus order-level flags reused from `fact_orders` |
+| `fact_payments` | 1 row per payment record | payment_type, installments, payment_value, `is_zero_value_payment` flag |
+| `fact_reviews` | 1 row per order (deduplicated) | Latest review per order via `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY review_answer_timestamp DESC)`, restricted to delivered orders |
 
-- Clean Revenue excludes canceled and unavailable orders
-- Late Delivery Rate excludes 24 null-date rows and 1,373 date logic violations from both numerator and denominator
-- Positive/Negative Review Rate uses latest review per order_id — deduped using `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY review_answer_timestamp DESC)`
-- Repeat Customer Rate is customer-based: unique customers with more than 1 order divided by total unique customers
-- AOV pre-aggregates payments to order level before averaging to prevent fan-out from multi-row payment table
+### Design principles
+- **No fact-to-fact relationships.** Every fact table carries its own `customer_id` and `order_purchase_date`, denormalized via the SQL join, so each fact relates independently to `dim_customers` and `dim_date`. Avoids ambiguous filter propagation in Power BI entirely.
+- **Only `order_purchase_date` relates to `dim_date`.** The other four order date columns (approved, carrier, delivered, estimated) stay as plain datetime columns; durations are computed once in SQL rather than solved with role-playing dimensions in DAX.
+- **All 10 relationships are single cross-filter direction**, dimension → fact only — including the one genuinely one-to-one relationship (`dim_customers` ↔ `fact_orders`), to prevent indirect filter leakage between fact tables through a shared dimension.
+- **"Clean" vs "Gross"** is handled via a plain boolean column (`is_excluded_from_clean`) rather than a DAX filter — Gross = no filter, Clean = `is_excluded_from_clean = False`.
 
----
-
-## Phase 5 — Power BI Architecture
-
-### Mixed Model Approach
-
-The project started with a full Import mode setup — all 9 raw tables loaded directly into Power BI, with DAX measures for KPIs and visuals.
-
-As analysis grew more complex, DAX began producing incorrect results for:
-- Review deduplication (no ROW_NUMBER equivalent)
-- Multi-table joins with fan-out risk
-- Filtered aggregations across multiple conditions
-- Window function logic for share percentages
-
-**PostgreSQL views were introduced** to handle all complex analytical logic. Power BI was then connected to these views via DirectQuery on top of the existing imported tables — creating a mixed model.
-
-**Result:** Raw tables (Import) handle simple card measures and base relationships. Views (DirectQuery) handle all complex analytical visuals. This mirrors a production BI architecture where heavy computation lives in the database layer.
-
-### Why SQL Views Over DAX
-
+### Why SQL Views Instead of DAX
 | Requirement | DAX | SQL View |
 |---|---|---|
-| ROW_NUMBER deduplication | No native equivalent | Window function |
-| Multi-step CTEs | Not supported | Fully supported |
-| Filtered aggregates | Verbose, error-prone | COUNT(*) FILTER (WHERE ...) |
-| Fan-out prevention | Requires careful CALCULATE | Pre-aggregate in CTE |
-| Share % via window function | Complex nested measures | SUM(COUNT(*)) OVER () |
+| Review deduplication | No native ROW_NUMBER equivalent | Window function |
+| Multi-table joins with fan-out risk | Requires careful CALCULATE/relationship management | Pre-joined and pre-flagged at the correct grain |
+| Gross vs Clean filtering | Would need a measure per KPI | Single boolean column, reused everywhere |
+| Delivery duration / lateness logic | Verbose nested CASE/CALCULATE | One CASE WHEN per column, computed once |
 
----
-
-## SQL Views Created
-
-| View | Description |
-|---|---|
-| `vw_review_score_distribution` | Overall score distribution for delivered orders |
-| `vw_review_score_by_delivery_bucket` | Score breakdown by delivery timeliness (Very Early to Very Late) |
-| `vw_survey_response_time_vs_review` | Score breakdown by time between delivery and review submission |
-| `vw_review_score_by_category` | Score breakdown by product category (item-level review attribution) |
-| `vw_order_items_by_category` | Clean vs failed item counts per category |
-| `vw_cancellation_rate_by_category` | Order-level cancellation rate per category |
-| `vw_late_delivery_rate_by_category` | Late delivery rate per product category |
-| `vw_repeat_purchase_category_composition` | Share of repeat purchase items by category |
-| `vw_seller_concentration` | Item volume and clean revenue per seller |
-| `vw_seller_delay_rate` | Late delivery rate per seller at item level |
-| `vw_payment_type_usage_share` | Payment type transaction share (zero-value rows excluded) |
-| `vw_payment_type_value_share` | Payment type value share |
-| `vw_installment_behavior` | Installment count bucket distribution |
-| `vw_customer_order_frequency` | Order count per unique customer |
-| `vw_peak_month` | Month with highest clean revenue |
-| `vw_orders_by_hour_bucket` | Order volume by 4-hour time-of-day bucket |
-
-### Key SQL Techniques Used
-
-- `ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY review_answer_timestamp DESC)` — review deduplication
-- `COUNT(*) FILTER (WHERE ...)` — conditional aggregation
-- `SUM(COUNT(*)) OVER ()` — window function for share percentage
-- `COALESCE(product_category_name, 'Other')` — null category handling
-- `EXTRACT(DAYS FROM ...)` — delivery delay calculation
-- `CASE WHEN ... END` — bucketing for time of day, installments, delivery timeliness
-- Multi-step CTEs for complex transformations
-- Fan-out prevention via pre-aggregation before joining
+All Power BI visuals in this report use only basic field aggregations (Sum, Average, Count, Count Distinct) and native filter cards (checkbox and Top N) — zero DAX measures were written. All analytical logic lives in the SQL layer, which is deliberately the more heavily documented and defensible part of the project.
 
 ---
 
@@ -241,95 +154,72 @@ As analysis grew more complex, DAX began producing incorrect results for:
 
 | Page | Visuals | KPI Cards |
 |---|---|---|
-| Executive Overview | Orders and revenue trend (2016–2018), order status donut | Gross Revenue, Clean Revenue, Total Orders, Delivery Rate, Active Sellers, Positive Review Rate, Late Delivery Rate, Repeat Customer Rate, Cancellation Rate, Unavailability Rate |
-| Regional & Temporal Patterns | Revenue by state, orders by time-of-day bucket, delivered orders by weekday | Total Clean Revenue, Revenue Gap, Top State by Revenue, AOV, Peak Week Day |
-| Delivery Performance | Late delivery by state, AOV vs late delivery scatter by city, late delivery by category | Late Delivery Rate, Median Delivery Days, Avg Delivery Days, Worst State, Best State |
-| Customer Satisfaction | Review score distribution, score by delivery bucket, score by survey response time, score by category | Positive Review Rate, Negative Review Rate, 5-Star Share, 1-Star Share |
-| Product & Category Analysis | Clean vs failed orders by category, repeat purchase share, cancellation rate by category | Total Categories, Avg Cancellation Rate, Top Repeat Category, Total Clean Orders |
-| Seller Performance | Top 25 sellers by revenue with item volume vs revenue, seller delay rate | Total Active Sellers |
-| Payments & Customer Behavior | Installment behavior, customer order frequency, payment value share | Repeat Customer Rate, Dominant Payment Type, Single Installment Share, Max Orders Per Customer |
+| 1. Executive Overview | Revenue & order trend, order status donut, revenue by state, payment type split | Clean Orders, Gross Revenue, Clean Revenue, Avg Order Value, Avg Review Score |
+| 2. Revenue & Order Outcomes | Orders by status, monthly order volume trend | Gross Revenue, Total Orders, Canceled Orders, Unavailable Orders |
+| 3. Regional & Delivery Performance | Revenue by state, avg freight by state, late orders by state, top cities by revenue, top 10 sellers by revenue | Active States, Active Sellers, Avg Freight Cost, Late Orders, Avg Delivery Days |
+| 4. Temporal Patterns | Orders by day of week, weekday vs weekend split, orders by month (seasonality) | Total Orders, Total Revenue |
+| 5. Payments, Products & Customer Feedback | Payment type orders vs value, avg payment value by type, installments distribution, top 10 categories by revenue, review score distribution | Total Payment Value, Avg Payment Value, Avg Installments, Credit Card Payments |
 
 ---
 
 ## Key Findings
 
 ### Revenue and Orders
-- Total clean revenue of **15.74M BRL** across 99K orders over approximately 2 years
-- Clear **Q4 2017 revenue peak** — strong seasonality, likely tied to Black Friday and holiday season
-- Revenue gap from failed orders is only **269.74K BRL** (~1.7% of gross) — operationally healthy
+- Total gross revenue of **16.01M BRL** across 99,441 orders over roughly 2 years
+- Revenue is defined as `SUM(payment_value)`, not item price — payments reflect what was actually collected, including freight
+- Order volume and revenue don't always move together month-to-month (e.g. Jul 2018 vs Aug 2018) — a sign that average order value shifts independently of volume
 
 ### Geographic Concentration
-- **SP and RJ dwarf all other states** in revenue — extreme geographic concentration risk
-- 20+ states contribute minimal revenue — large untapped expansion opportunity
-- Northeastern states (AL, MA, PI, CE) combine **low revenue with high late delivery rates** — double challenge for any expansion effort
+- **São Paulo (SP) dominates by a wide margin** — ~42% of orders and ~37% of revenue, more than 3x the #2 state — but has the *lowest* AOV of any state, meaning volume, not value per order, drives its lead
+- Top 5 states account for ~75–77% of both order volume and revenue; the remaining 22 states share the rest
+- Freight cost and product price mix vary far more by state than basket size (items per order) does — the likely real driver of regional AOV differences
 
 ### Delivery Performance
-- **97.02% delivery rate** — strong operational baseline
-- **8.11% late delivery rate** among valid delivered orders
-- **AL has the worst late delivery rate (~20%)**, RO the best (~3-4%)
-- Heavy/bulky categories (`casa_conforto_2`, `moveis_colchao_e_estofado`) have the highest late delivery rates (~16-17%)
-- **Most orders are delivered significantly ahead of estimated date** — Olist's delivery estimates are consistently conservative
+- Delivery reliability doesn't track cleanly with order volume — some high-volume states/cities have worse late-delivery rates than smaller ones, and vice versa
+- Seller density doesn't guarantee reliability either — the state with the most sellers is only mid-pack on-time
 
 ### Customer Satisfaction
-- **77.07% positive review rate**; **14.69% negative**
-- Very Late deliveries show concentrated 1-star reviews — late delivery directly drives dissatisfaction
-- Customers who review **2-3 days after delivery** are the most active reviewers (44K) and give the most 5-stars (27K)
-- Same-day reviews are almost non-existent
+- Average review score sits around 4.1–4.2 depending on whether all reviews or only delivered/deduplicated reviews are counted — this project uses the delivered-only, latest-review-per-order basis throughout, since review scores should reflect a completed purchase experience
+- ~2.9% of raw reviews are attached to non-delivered orders and are excluded from analysis for this reason
 
 ### Category Insights
-- **cama_mesa_banho** (bed/bath/table) leads in volume, repeat purchases, and total reviews — Olist's anchor category
-- **pc_gamer** has the highest cancellation rate (~10%) — niche, high-ticket, high cancellation risk
-- **beleza_saude** (health/beauty) leads in 5-star reviews — highest satisfaction category
-- Electronics categories show disproportionate 1-star share relative to volume
-
-### Seller Insights
-- All **3,095 registered sellers** made at least one sale — 100% active
-- Top seller generates ~250K clean revenue, nearly 3x the 25th ranked seller
-- **Item volume and clean revenue are not correlated** — some high-volume sellers earn mid-level revenue while low-volume sellers can be top earners
-- Even among high-volume sellers (25+ items), late delivery rates range 20-45% — systemic logistics problem, not isolated seller behavior
+- `cama_mesa_banho` (bed/bath/table) is the largest category by volume but shows comparatively weaker review sentiment than smaller, higher-satisfaction categories
+- Category ranking by order count and by revenue diverge meaningfully — some categories are low-volume but high-value niches
 
 ### Customer Behavior
-- **96.88% of customers placed only 1 order** — severe retention gap, biggest business risk
-- **Credit card dominates** — 73.93% of transactions, 78.34% of total value
-- **50.58% pay in a single installment** — but 22% use 2-3 installments, Brazilian installment culture visible
-- **Afternoon (12-16) and Evening (16-20)** are peak ordering windows
-- **Monday to Thursday** dominate; Saturday is the weakest day
+- The large majority of customers place only one order — repeat purchase is the exception, not the norm, and is the single biggest retention risk visible in the data
+- ~17% of customers generate roughly 50% of clean revenue — significant revenue concentration in a small customer base
+- Credit card is the dominant payment method by both transaction count and value share; installment usage beyond 1x is exclusive to credit card
 
 ---
 
 ## How to Reproduce
-
 1. Download the Olist dataset from [Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
-2. Set up a PostgreSQL database
-3. Run `olist1.ipynb` — update the connection string with your credentials before running
-4. Run all SQL view scripts from the `/views` folder in pgAdmin or any PostgreSQL client
+2. Set up a local PostgreSQL database
+3. Run `olistv2.ipynb` — update the connection string with your own credentials before running the loader cell
+4. Continue running the notebook through the schema-building section — it creates all 8 dimension/fact views directly against your PostgreSQL database via SQLAlchemy
 5. Open `OLIST_Project.pbix` in Power BI Desktop
-6. Update the data source connection: Home → Transform Data → Data Source Settings → update server and database name
-7. Refresh the report
-
-**Note:** The `.pbix` file uses a mixed model — raw tables are imported (data embedded) and views connect via DirectQuery (requires a live PostgreSQL connection). KPI cards and simple measures will load from the imported tables. Complex analytical visuals require the PostgreSQL connection to be active.
+6. Update the data source: Home → Transform Data → Data Source Settings → point it at your own PostgreSQL server/database
+7. Refresh — the report is Import mode, so once refreshed it works fully offline, no live database connection required afterward
 
 ---
 
 ## Limitations and Known Issues
-
-- Slicers not implemented — pre-aggregated views do not retain granular keys needed for reliable cross-view filter propagation in DirectQuery
-- 1,373 delivered orders with date logic violations excluded from late delivery rate
-- 1 delivered order with no payment record excluded from revenue analysis
-- Category names remain in Portuguese (original dataset); English translations available for 71 of 73 categories
-- Sep 2016 and Oct 2018 are partial months — excluded from trend interpretation
-- Scatter plot (AOV vs Late Delivery Rate by City) has measure management issues — some legacy measures from the initial DAX phase may still be present in the model
+- No DAX measures were used by design — a small number of ratio-based metrics (e.g. late delivery %, category-level cancellation rate) are approximated visually via clustered comparisons rather than computed as a single percentage; a future iteration will add a handful of one-line DAX measures for these
+- `fact_payments` is at payment-record grain, not order grain — a plain "Average of payment_value" differs slightly from a true order-level AOV (which requires pre-aggregating payments to one row per order first); noted here rather than hidden
+- Category names are shown in English via the translation join, with 610 uncategorized products (no source category) grouped under "uncategorized"
+- Sep 2016 and Oct 2018 are partial months and should be read with that caveat in any trend chart
+- Nov 2016 shows a near-total absence of orders — confirmed as a real data gap during profiling, not an artifact of the date range
 
 ---
 
 ## Files in This Repository
-
 | File | Description |
 |---|---|
-| `olist1.ipynb` | Full data loading, profiling, validation, relational integrity, and analysis notebook |
-| `OLIST_Project.pbix` | Power BI report (mixed model — partial data embedded, views require PostgreSQL connection) |
-| `/views/` | All PostgreSQL view SQL scripts |
+| `olistv2.ipynb` | Full data loading, profiling, validation, relational integrity work, and the SQL view/schema build |
+| `OLIST_Project.pbix` | Power BI report — Import mode, 5 pages, no DAX |
+| `Olist_Star_Schema_8Views.sql` | Standalone copy of the 8 view definitions, for reference outside the notebook |
 
 ---
 
-*Built as a portfolio project to demonstrate end-to-end data analytics skills — raw data ingestion, relational integrity validation, SQL-based analytical logic, and BI reporting with a production-standard architecture.*
+*Built as a portfolio project to demonstrate end-to-end data analytics skills — raw data ingestion, relational integrity validation, dimensional data modeling, and BI reporting without relying on DAX for core business logic.*
