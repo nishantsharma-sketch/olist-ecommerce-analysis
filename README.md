@@ -221,7 +221,7 @@ Each page has its own slicers (mostly Year and Customer State, with a few pages 
 
 ## Limitations and Known Issues
 
-- No DAX measures by design — a couple of ratio metrics (like late-delivery % by state) are shown as visual comparisons instead of a single computed percentage; a future version could add a small number of DAX measures just for those
+- Very limited measures by design — a couple of ratio metrics (like late-delivery % by state) are shown as visual comparisons instead of a single computed percentage; a future version could add a small number of DAX measures just for those
 - `fact_order_items` is at line-item grain, not order grain — one row per item, not per order. A plain Count on it counts items, not orders, so anything that needs an order-level number (like total orders) has to use Count Distinct on `order_id` instead
 - `fact_payments` is at payment-record grain, not order grain, so a plain average of payment_value differs slightly from a true order-level AOV
 - 610 products have no source category and are grouped under "uncategorized"
